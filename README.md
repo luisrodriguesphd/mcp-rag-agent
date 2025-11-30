@@ -109,10 +109,8 @@ mcp-rag-agent/
 │   └── core/                       # Configuration and utilities
 │       ├── config.py               # Environment-based configuration
 │       └── log_setup.py            # Logging configuration
-├── tests/                          # Unit and integration tests
-│   ├── __init__.py                 # Tests package initialization
-│   ├── test_client.py              # MongoDB client tests
-│   └── test_search.py              # Semantic search tests
+├── tests/                          # Tests
+│   └── unit_tests                  # Unit tests
 ├── .env.example                    # Example environment configuration
 ├── .gitignore                      # Git ignore patterns
 ├── requirements.txt                # Production dependencies
@@ -138,18 +136,22 @@ git clone <repository-url>
 cd mcp-rag-agent
 ```
 
-2. **Create virtual environment**:
+2. **Run the `start` file**:
 ```bash
-python -m venv venv
-source venv/bin/activate  # On Windows: venv\Scripts\activate
-```
+# Windows:
+start.cmd
 
-3. **Install dependencies**:
-```bash
-pip install -r requirements.txt
+# Linux/macOS:
+chmod +x start.sh
+./start.sh
 ```
+This script will automatically:
+- Install and upgrade pip
+- Create and activate a virtual environment
+- Install all development dependencies
+- Install the package in editable mode
 
-4. **Configure environment variables**:
+3. **Configure environment variables**:
 ```bash
 cp .env.example .env
 # Edit .env with your settings
@@ -167,11 +169,11 @@ This will:
 - Store vectors in MongoDB Atlas
 - Create vector search index
 
-2. **Test the MCP server** (optional - needs nvm):
+2. **Test the MCP server** (optional - requires Node.js):
 ```bash
 mcp dev src/mcp_rag_agent/mcp_server/server.py
 ```
-This opens a UI to test the `search_documents` tool.
+This opens a UI to test the `search_documents` tool and other resources.
 
 3. **Run the agent**:
 ```bash
