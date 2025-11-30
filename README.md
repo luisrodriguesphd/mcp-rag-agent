@@ -68,45 +68,58 @@ The MCP RAG Agent is a sophisticated question-answering system that:
 ```
 mcp-rag-agent/
 ├── data/
-│   ├── ingested_documents/       # Source documents (policies)
+│   ├── ingested_documents/         # Source documents (policies)
 │   │   └── policies/
 │   │       ├── 1 - Remote Working.txt
 │   │       ├── 2 - Expenses.txt
 │   │       ├── 3 - Annual Leave.txt
 │   │       ├── 4 - IT Security.txt
 │   │       └── 5 - Sustainability.txt
-│   └── evaluation_documents/     # Test cases for evaluation
+│   └── evaluation_documents/       # Test cases for evaluation
 │       └── expected_behaviour.xlsx
-├── evaluation/                  # Automated testing and metrics
-│   ├── evaluator.py             # Main evaluation script
-│   ├── metrics.py               # RAGAS metrics wrapper
-│   ├── results/                 # Evaluation output
-│   └── README.md
+├── evaluation/                     # Automated testing and metrics
+│   ├── main.py                     # Main evaluation orchestration script
+│   ├── answer_generator.py         # Generates answers using the agent
+│   ├── metrics_evaluator.py        # Evaluates answers using RAGAS metrics
+│   ├── metrics.py                  # RAGAS metrics wrapper and definitions
+│   ├── results/                    # Evaluation output (CSV files)
+│   └── README.md                   # Evaluation module documentation
 ├── src/mcp_rag_agent/
-│   ├── agent/                   # LangChain agent implementation
-│   │   ├── create_agent.py      # Agent creation and configuration
-│   │   ├── prompts/             # COSTAR-based system prompts
-│   │   └── README.md
-│   ├── embeddings/              # Document processing and indexing
-│   │   ├── embedding_generator.py
-│   │   ├── index_documents.py
-│   │   ├── semantic_search.py
-│   │   └── README.md
-│   ├── mcp_server/              # MCP server implementation
-│   │   ├── server.py            # FastMCP server with tools
-│   │   └── README.md
-│   ├── mongodb/                 # Database client
-│   │   ├── client.py            # MongoDB wrapper with vector search
-│   │   └── README.md
-│   └── core/                    # Configuration and utilities
-│       ├── config.py            # Environment-based configuration
-│       └── log_setup.py         # Logging configuration
-├── tests/                       # Unit and integration tests
-├── .env.example                 # Example environment configuration
-├── requirements.txt             # Production dependencies
-├── requirements_dev.txt         # Development dependencies
-├── setup.py                     # Package installation
-└── README.md                    # This file
+│   ├── agent/                      # LangChain agent implementation
+│   │   ├── create_agent.py         # Agent creation and configuration
+│   │   ├── prompts/                # COSTAR-based system prompts
+│   │   │   ├── __init__.py         # Prompts module exports
+│   │   │   └── system_prompt.py    # System prompt definitions
+│   │   ├── utils/                  # Agent utility functions
+│   │   │   ├── mcp_rag_agent_creator.py  # MCP-enabled agent factory
+│   │   │   └── rag_agent_creator.py      # Base RAG agent factory
+│   │   └── README.md               # Agent module documentation
+│   ├── embeddings/                 # Document processing and indexing
+│   │   ├── embedding_generator.py  # OpenAI embeddings generation
+│   │   ├── index_documents.py      # Document indexing pipeline
+│   │   ├── semantic_search.py      # Vector similarity search
+│   │   └── README.md               # Embeddings module documentation
+│   ├── mcp_server/                 # MCP server implementation
+│   │   ├── server.py               # FastMCP server with tools
+│   │   ├── tools.py                # MCP tool implementations
+│   │   └── README.md               # MCP server documentation
+│   ├── mongodb/                    # Database client
+│   │   ├── client.py               # MongoDB wrapper with vector search
+│   │   └── README.md               # MongoDB module documentation
+│   └── core/                       # Configuration and utilities
+│       ├── config.py               # Environment-based configuration
+│       └── log_setup.py            # Logging configuration
+├── tests/                          # Unit and integration tests
+│   ├── __init__.py                 # Tests package initialization
+│   ├── test_client.py              # MongoDB client tests
+│   └── test_search.py              # Semantic search tests
+├── .env.example                    # Example environment configuration
+├── .gitignore                      # Git ignore patterns
+├── requirements.txt                # Production dependencies
+├── requirements_dev.txt            # Development dependencies
+├── setup.py                        # Package installation configuration
+├── start.cmd                       # Windows startup script
+└── README.md                       # This file
 ```
 
 ## Quick Start
@@ -142,27 +155,6 @@ cp .env.example .env
 # Edit .env with your settings
 ```
 
-Required `.env` variables:
-```bash
-# OpenAI
-OPENAI_API_KEY=sk-...
-
-# Models
-TEXT_MODEL=gpt-4o-mini
-EMBEDDING_MODEL=text-embedding-3-small
-EMBEDDING_DIMENSION=1536
-
-# MongoDB Atlas
-DB_URL=mongodb+srv://user:pass@cluster.mongodb.net/
-DB_NAME=rag_database
-DB_DOCUMENTS_COLLECTION=documents
-DB_VECTOR_COLLECTION=document_embeddings
-DB_VECTOR_INDEX_NAME=vector_index
-
-# MCP
-MCP_NAME=rag_server
-```
-
 ### Setup Workflow
 
 1. **Index documents**:
@@ -175,7 +167,7 @@ This will:
 - Store vectors in MongoDB Atlas
 - Create vector search index
 
-2. **Test the MCP server** (optional):
+2. **Test the MCP server** (optional - needs nvm):
 ```bash
 mcp dev src/mcp_rag_agent/mcp_server/server.py
 ```
@@ -189,7 +181,7 @@ This runs a demo query showing the agent in action.
 
 4. **Evaluate performance** (optional):
 ```bash
-python evaluation/evaluator.py
+python evaluation/main.py
 ```
 Runs automated evaluation using RAGAS metrics.
 
@@ -271,7 +263,7 @@ from mcp_rag_agent.core.config import config
 
 async def main():
     await index_documents(
-        directory_path="data/ingested_documents/policies",
+        directory_path="data/ingested_documents",
         config=config
     )
 
@@ -291,43 +283,8 @@ Each module has detailed documentation:
 ## Configuration
 
 Configuration is managed through two layers:
-
-### 1. Environment Variables (`.env`)
-
-Most settings are configured via environment variables:
-
-**Model Settings:**
-- `TEXT_MODEL`: LLM for agent reasoning (default: `gpt-4o-mini`)
-- `EMBEDDING_MODEL`: Model for embeddings (default: `text-embedding-3-small`)
-- `EMBEDDING_DIMENSION`: Vector dimensions (default: `1536`)
-- `EVALUATION_MODEL_NAME`: Model for evaluation (default: `gpt-4o-mini`)
-
-**MongoDB Settings:**
-- `DB_URL`: MongoDB Atlas connection URI
-- `DB_NAME`: Database name
-- `DB_DOCUMENTS_COLLECTION`: Collection for raw documents
-- `DB_VECTOR_COLLECTION`: Collection for embeddings
-- `DB_VECTOR_INDEX_NAME`: Name of vector search index
-
-**MCP Settings:**
-- `MCP_NAME`: Name for the MCP server connection
-
-### 2. Code Configuration (`src/mcp_rag_agent/core/config.py`)
-
-Some advanced settings are configured directly in the `Config` class:
-
-**Text Generation Settings:**
-```python
-TEXT_GENERATION_KWARGS = {
-    "temperature": 0.0,
-    "max_tokens": 500
-}
-```
-
-**Document Paths:**
-```python
-DOCUMENTS_DIRECTORY = "data/ingested_documents"
-```
+1. Environment Variables (`.env`): Most settings are configured via environment variables, although only the external dependencies are included in the `.env.sample` file.
+2. Code Configuration (`src/mcp_rag_agent/core/config.py`): Some advanced settings are configured directly in the `Config` class, such as text generation parameters (temperature,...)
 
 **Note:** To modify these settings, edit `src/mcp_rag_agent/core/config.py` directly. The `Config` class loads environment variables and provides default values for all configuration parameters.
 

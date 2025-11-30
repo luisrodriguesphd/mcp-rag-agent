@@ -41,5 +41,9 @@ class Config(BaseSettings):
     # Feature flags
     ff_mcp_server: bool = os.environ.get("FEATURE_FLAG_MCPSERVER_ENABLED", "false").lower() == "true"
     ff_web_search: bool = os.environ.get("FEATURE_FLAG_WEBSEARCH_ENABLED", "false").lower() == "true"
+    # Evaluation settings
+    ingested_doc_dir: str = os.environ.get("INGESTED_DOC_DIRECTORY", "./data/ingested_documents")
+    evaluation_doc_dir: str = os.environ.get("EVALUATION_DOC_DIRECTORY", "./data/evaluation_documents")
+    # Additional settings can be added here as needed
 
 config = Config()
