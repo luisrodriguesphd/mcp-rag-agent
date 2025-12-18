@@ -1015,4 +1015,9 @@ mongo_client.connect()
 
 - [Embeddings Module](../embeddings/README.md) - Vector generation and indexing
 - [MCP Server](../mcp_server/README.md) - Tool integration using MongoDB client
-- [MongoDB Atlas Vector Search](https://www.mongodb.com/docs/atlas/atlas-vector-search/vector-search-overview/) - Official documentation
+- [SEARCH_GUIDE.md](./SEARCH_GUIDE.md) - Detailed search methods comparison and best practices
+
+## References
+
+- [MongoDB: How to Perform Hybrid Search](https://www.mongodb.com/docs/atlas/atlas-vector-search/hybrid-search/) - Official guide on Reciprocal Rank Fusion and hybrid search use cases
+- [MongoDB Atlas Vector Search Overview](https://www.mongodb.com/docs/atlas/atlas-vector-search/vector-search-overview/) - Official documentation on vector search 

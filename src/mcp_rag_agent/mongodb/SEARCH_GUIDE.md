@@ -718,3 +718,10 @@ document = {
 - **Hybrid Search**: When you want the best overall results (recommended default)
 
 The current implementation is production-ready and follows industry best practices used by major search platforms like Elasticsearch, Weaviate, and Vespa.
+
+---
+
+## References
+
+- [MongoDB: How to Perform Hybrid Search](https://www.mongodb.com/docs/atlas/atlas-vector-search/hybrid-search/) - Official guide on Reciprocal Rank Fusion and hybrid search use cases
+- [MongoDB Atlas Vector Search Overview](https://www.mongodb.com/docs/atlas/atlas-vector-search/vector-search-overview/) - Official documentation on vector search 
