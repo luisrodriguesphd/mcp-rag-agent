@@ -2,6 +2,8 @@
 
 The MongoDB module provides a clean interface for database operations, specializing in vector storage and semantic search capabilities for RAG applications.
 
+> **📚 For detailed search method comparisons, examples, and best practices, see [SEARCH_GUIDE.md](./SEARCH_GUIDE.md)**
+
 ## Overview
 
 This module implements a MongoDB client wrapper that:
@@ -233,6 +235,45 @@ deleted_count = client.delete_documents(
 **Returns:**
 - Number of documents deleted (int)
 
+#### Text Search Operations
+
+##### `create_text_search_index()`
+
+Creates a full-text search index for keyword-based searching.
+
+```python
+client.create_text_search_index(
+    collection_name="documents",
+    index_name="text_search_idx",
+    text_fields=["content", "title", "description"],
+    weights={"title": 10, "content": 5, "description": 1}
+)
+```
+
+**Parameters:**
+- `collection_name` (str): Collection to create index on
+- `index_name` (str): Name for the text search index
+- `text_fields` (list[str]): Fields to include in text index
+- `weights` (dict[str, int], optional): Field importance weights (1-999)
+
+**Features:**
+- Enables keyword-based searching across text fields
+- Supports natural language queries with stemming
+- Automatic stop word removal
+- Relevance scoring based on term frequency and field weights
+- Only one text index allowed per collection
+
+**Use Cases:**
+- Keyword search (e.g., "remote work policy")
+- Phrase matching (e.g., "annual leave")
+- Multi-field search with weighted importance
+- Combining with filters for refined searches
+
+**Requirements:**
+- Text fields must contain string values
+- Index is automatically maintained as documents change
+- For MongoDB Atlas, consider Atlas Search for advanced features
+
 #### Vector Search Operations
 
 ##### `create_vector_search_index()`
@@ -265,7 +306,7 @@ client.create_vector_search_index(
 
 ##### `vector_search()`
 
-Performs vector similarity search.
+Performs vector similarity search with optional score threshold filtering.
 
 ```python
 results = client.vector_search(
@@ -275,7 +316,8 @@ results = client.vector_search(
     query_vector=[0.12, -0.34, 0.56, ...],  # 1536 dimensions
     limit=5,
     num_candidates=100,
-    filter_query={"department": "HR"}
+    filter_query={"department": "HR"},
+    min_score=0.7  # Only return high-quality matches
 )
 ```
 
@@ -287,6 +329,7 @@ results = client.vector_search(
 - `limit` (int, optional): Maximum results (default: 10)
 - `num_candidates` (int, optional): Number of candidates to consider (default: 100)
 - `filter_query` (dict, optional): Additional filter to apply to results
+- `min_score` (float, optional): Minimum similarity score threshold (0-1 for cosine). Only documents with score >= min_score are returned. Default: None (no filtering)
 
 **Returns:**
 - List of documents with similarity scores
@@ -310,6 +353,183 @@ results = client.vector_search(
 2. Returns top-k most similar documents
 3. Includes similarity score in results
 4. Optionally filters results based on metadata
+5. Applies score threshold if specified
+
+**Score Threshold Examples:**
+```python
+# High relevance only (recommended for precision)
+results = client.vector_search(..., min_score=0.75)
+
+# Moderate relevance (balanced)
+results = client.vector_search(..., min_score=0.6)
+
+# Exploratory search (broader results)
+results = client.vector_search(..., min_score=0.5)
+```
+
+**Recommended Thresholds:**
+- **0.7-0.8**: High relevance (strict filtering)
+- **0.6-0.7**: Moderate relevance (balanced)
+- **0.5-0.6**: Lower relevance (exploratory)
+- **None**: No filtering (all results)
+
+#### Hybrid Search Operations
+
+##### `hybrid_search()`
+
+Performs hybrid search combining vector similarity and full-text search using Reciprocal Rank Fusion (RRF) with optional three-tier threshold filtering.
+
+```python
+# Generate query embedding
+query_vector = await embedder.generate_embedding("remote work policy")
+
+# Perform hybrid search with quality thresholds
+results = client.hybrid_search(
+    collection_name="documents",
+    vector_index_name="vector_idx",
+    text_index_name="text_search_idx",
+    vector_field="embedding",
+    query_vector=query_vector,
+    query_text="remote work policy",
+    limit=5,
+    num_candidates=100,
+    semantic_weight=0.7,
+    filter_query={"department": "HR"},
+    rrf_k=60,
+    min_vector_score=0.6,   # Filter vector results before RRF
+    min_text_score=1.0,     # Filter text results before RRF
+    min_rrf_score=0.01      # Filter final combined results
+)
+```
+
+**Parameters:**
+- `collection_name` (str): Collection to search
+- `vector_index_name` (str): Name of vector search index
+- `text_index_name` (str): Name of text search index
+- `vector_field` (str): Field containing embeddings
+- `query_vector` (list[float]): Query embedding vector
+- `query_text` (str): Text query string
+- `limit` (int, optional): Maximum results (default: 10)
+- `num_candidates` (int, optional): Candidates for vector search (default: 100)
+- `semantic_weight` (float, optional): Weight controlling semantic vs keyword search (0-1, default: 0.7). Higher values favor semantic similarity, lower values favor keyword matching
+- `filter_query` (dict, optional): Metadata filter
+- `rrf_k` (int, optional): RRF constant (default: 60)
+- `min_vector_score` (float, optional): Minimum vector similarity threshold. Filters vector results BEFORE RRF fusion. Default: None
+- `min_text_score` (float, optional): Minimum text relevance threshold. Filters text results BEFORE RRF fusion. Default: None
+- `min_rrf_score` (float, optional): Minimum RRF score threshold. Filters combined results AFTER RRF fusion. Default: None
+
+**Returns:**
+- List of documents with combined RRF scores and ranking information
+
+**Result Format:**
+```python
+[
+    {
+        "_id": ObjectId("..."),
+        "content": "Remote working policy...",
+        "embedding": [0.12, -0.34, ...],
+        "rrf_score": 0.0234,         # Combined RRF score
+        "vector_rank": 2,            # Rank from vector search
+        "text_rank": 1,              # Rank from text search
+        "vector_score": 0.89,        # Original vector similarity
+        "text_score": 12.5           # Original text relevance
+    },
+    ...
+]
+```
+
+**Three-Tier Threshold Filtering:**
+
+Hybrid search supports sophisticated quality control with three independent thresholds:
+
+1. **Pre-RRF Filtering** (`min_vector_score`, `min_text_score`):
+   - Filters individual search results BEFORE combining them
+   - Removes low-quality matches early
+   - Example: Filter out vector scores < 0.6 and text scores < 1.0
+
+2. **RRF Fusion**:
+   - Combines remaining results using RRF algorithm
+   - Deduplicates documents found by both searches
+
+3. **Post-RRF Filtering** (`min_rrf_score`):
+   - Final quality gate on combined RRF scores
+   - Ensures only high-quality combined results are returned
+   - Example: Only return results with RRF score >= 0.01
+
+**Threshold Examples:**
+```python
+# Strict quality control (high precision)
+results = client.hybrid_search(
+    ...,
+    min_vector_score=0.75,  # High semantic similarity
+    min_text_score=2.0,     # Strong keyword match
+    min_rrf_score=0.015     # High combined quality
+)
+
+# Balanced approach (recommended)
+results = client.hybrid_search(
+    ...,
+    min_vector_score=0.6,   # Moderate semantic
+    min_text_score=1.0,     # Reasonable keywords
+    min_rrf_score=0.01      # Standard quality gate
+)
+
+# Exploratory search (broad results)
+results = client.hybrid_search(
+    ...,
+    min_vector_score=0.5,   # Accept broader matches
+    min_text_score=None,    # No text filtering
+    min_rrf_score=None      # No final filtering
+)
+```
+
+**How RRF Works:**
+
+Reciprocal Rank Fusion (RRF) is an industry-standard algorithm that combines rankings from multiple search systems:
+
+1. **Execute Both Searches**: Runs vector and text search in parallel
+2. **Apply Pre-RRF Thresholds**: Filters each result set independently
+3. **Assign Ranks**: Documents are ranked by their position (1, 2, 3, ...)
+4. **Calculate RRF Scores**: For each document:
+   ```
+   RRF_score = (vector_weight / (k + vector_rank)) + (text_weight / (k + text_rank))
+   
+   where:
+       semantic_weight = 0.7 (default, adjustable 0-1)
+       vector_weight = semantic_weight
+       text_weight = 1.0 - semantic_weight
+       k = 60 (default, reduces impact of high ranks)
+   ```
+5. **Deduplicate**: Documents in both result sets have combined scores
+6. **Apply Post-RRF Threshold**: Filters final results by combined score
+7. **Rank by Score**: Final results sorted by RRF score (highest first)
+
+**Why RRF?**
+- **Robust**: No score normalization needed (combines ranks, not scores)
+- **Industry Standard**: Used by Elasticsearch, Weaviate, Vespa
+- **Balanced**: Weights control importance of semantic vs keyword matching
+- **Proven**: Based on research from University of Waterloo
+
+**Use Cases:**
+- **Semantic + Keyword**: "remote work" finds both similar concepts and exact matches
+- **Technical Terms**: Captures both embeddings context and precise terminology
+- **Mixed Queries**: Natural language questions with specific keywords
+- **Improved Recall**: Finds relevant documents missed by single approach
+
+**Best Practices:**
+- Use `semantic_weight=0.7` (default) for semantic-heavy queries
+- Use `semantic_weight=0.5` for balanced importance
+- Use `semantic_weight=0.3` for keyword-heavy queries
+- Use `semantic_weight=1.0` for pure semantic search (vector only)
+- Use `semantic_weight=0.0` for pure keyword search (text only)
+- Adjust `rrf_k` (1-100): lower values favor top results
+- Ensure query_text and query_vector represent same query
+- Create both indexes before first search
+- Start with moderate thresholds (0.6, 1.0, 0.01) and adjust based on results
+- Use strict thresholds for compliance/legal searches
+- Use lenient thresholds for exploratory research
+
+> **📚 For detailed threshold strategies, use cases, and tuning guidelines, see [SEARCH_GUIDE.md](./SEARCH_GUIDE.md#score-thresholds)**
 
 ## Configuration
 
@@ -406,6 +626,184 @@ for doc in results:
     print(f"Score: {doc['score']:.3f}")
     print(f"Content: {doc['content'][:100]}...")
     print()
+```
+
+### Text Search Workflow
+
+```python
+from mcp_rag_agent.mongodb.client import MongoDBClient
+
+# Setup
+client = MongoDBClient("mongodb://localhost:27017", "rag_db")
+client.connect()
+
+# 1. Create text search index (one-time setup)
+client.create_text_search_index(
+    collection_name="documents",
+    index_name="text_search_idx",
+    text_fields=["content", "title"],
+    weights={"title": 10, "content": 1}  # Title matches are 10x more important
+)
+
+# 2. Insert documents with text content
+client.insert_documents(
+    "documents",
+    [
+        {
+            "title": "Remote Working Policy",
+            "content": "Employees may work remotely up to 3 days per week...",
+            "department": "HR"
+        },
+        {
+            "title": "Annual Leave Guidelines",
+            "content": "All employees are entitled to 25 days annual leave...",
+            "department": "HR"
+        }
+    ]
+)
+
+# 3. Perform text search (Note: For standard MongoDB, use $text query with find)
+# For MongoDB Atlas, you can use aggregation with $search
+results = client.find_documents(
+    "documents",
+    {"$text": {"$search": "remote work"}},
+    limit=5
+)
+
+# 4. Process results
+for doc in results:
+    print(f"Title: {doc['title']}")
+    print(f"Content: {doc['content'][:100]}...")
+    print()
+
+client.disconnect()
+```
+
+### Hybrid Search Workflow
+
+```python
+from mcp_rag_agent.mongodb.client import MongoDBClient
+from mcp_rag_agent.embeddings.embedding_generator import EmbeddingGenerator
+
+# Setup
+client = MongoDBClient("mongodb://localhost:27017", "rag_db")
+embedder = EmbeddingGenerator(api_key="sk-...", model="text-embedding-3-small")
+client.connect()
+
+# 1. Create both indexes (one-time setup)
+# Vector search index
+client.create_vector_search_index(
+    collection_name="documents",
+    index_name="vector_idx",
+    vector_field="embedding",
+    dimensions=1536,
+    similarity="cosine"
+)
+
+# Text search index (for MongoDB Atlas Search)
+client.create_text_search_index(
+    collection_name="documents",
+    index_name="text_idx",
+    text_fields=["content", "title"],
+    weights={"title": 10, "content": 1}
+)
+
+# 2. Insert documents with both embeddings and text
+query = "What is the remote working policy?"
+embedding = await embedder.generate_embedding(query)
+
+documents = [
+    {
+        "title": "Remote Working Policy",
+        "content": "Employees may work remotely up to 3 days per week...",
+        "embedding": await embedder.generate_embedding("Employees may work remotely..."),
+        "department": "HR"
+    }
+]
+client.insert_documents("documents", documents)
+
+# 3. Perform hybrid search
+query_text = "remote working from home"
+query_vector = await embedder.generate_embedding(query_text)
+
+results = client.hybrid_search(
+    collection_name="documents",
+    vector_index_name="vector_idx",
+    text_index_name="text_idx",
+    vector_field="embedding",
+    query_vector=query_vector,
+    query_text=query_text,
+    limit=5,
+    semantic_weight=0.7,  # 70% semantic, 30% keyword (default)
+    filter_query={"department": "HR"}  # Optional filter
+)
+
+# 4. Analyze results
+for i, doc in enumerate(results, 1):
+    print(f"\n--- Result {i} ---")
+    print(f"Title: {doc['title']}")
+    print(f"RRF Score: {doc['rrf_score']:.4f}")
+    print(f"Vector Rank: {doc['vector_rank']} (Score: {doc.get('vector_score', 'N/A')})")
+    print(f"Text Rank: {doc['text_rank']} (Score: {doc.get('text_score', 'N/A')})")
+    print(f"Content: {doc['content'][:150]}...")
+    
+    # Documents found by both methods have higher combined scores
+    if doc['vector_rank'] and doc['text_rank']:
+        print("✓ Found by both vector and text search")
+
+client.disconnect()
+```
+
+### Comparing Search Methods
+
+```python
+from mcp_rag_agent.mongodb.client import MongoDBClient
+from mcp_rag_agent.embeddings.embedding_generator import EmbeddingGenerator
+
+async def compare_search_methods():
+    """Compare vector-only, text-only, and hybrid search."""
+    client = MongoDBClient("mongodb://localhost:27017", "rag_db")
+    embedder = EmbeddingGenerator(api_key="sk-...", model="text-embedding-3-small")
+    
+    query = "What are the sustainability initiatives?"
+    query_vector = await embedder.generate_embedding(query)
+    
+    # Vector search only (semantic understanding)
+    vector_results = client.vector_search(
+        collection_name="documents",
+        index_name="vector_idx",
+        vector_field="embedding",
+        query_vector=query_vector,
+        limit=5
+    )
+    
+    # Text search only (keyword matching)
+    text_results = client.find_documents(
+        collection_name="documents",
+        query={"$text": {"$search": "sustainability initiatives"}},
+        limit=5
+    )
+    
+    # Hybrid search (best of both)
+    hybrid_results = client.hybrid_search(
+        collection_name="documents",
+        vector_index_name="vector_idx",
+        text_index_name="text_idx",
+        vector_field="embedding",
+        query_vector=query_vector,
+        query_text="sustainability initiatives",
+        limit=5
+    )
+    
+    print("Vector Search: Found", len(vector_results), "results")
+    print("Text Search: Found", len(text_results), "results")
+    print("Hybrid Search: Found", len(hybrid_results), "results")
+    
+    # Hybrid search typically has better recall and precision
+    return hybrid_results
+
+# Run comparison
+results = await compare_search_methods()
 ```
 
 ### Using Context Manager Pattern
@@ -616,4 +1014,9 @@ mongo_client.connect()
 
 - [Embeddings Module](../embeddings/README.md) - Vector generation and indexing
 - [MCP Server](../mcp_server/README.md) - Tool integration using MongoDB client
-- [MongoDB Atlas Vector Search](https://www.mongodb.com/docs/atlas/atlas-vector-search/vector-search-overview/) - Official documentation
+- [SEARCH_GUIDE.md](./SEARCH_GUIDE.md) - Detailed search methods comparison and best practices
+
+## References
+
+- [MongoDB: How to Perform Hybrid Search](https://www.mongodb.com/docs/atlas/atlas-vector-search/hybrid-search/) - Official guide on Reciprocal Rank Fusion and hybrid search use cases
+- [MongoDB Atlas Vector Search Overview](https://www.mongodb.com/docs/atlas/atlas-vector-search/vector-search-overview/) - Official documentation on vector search 

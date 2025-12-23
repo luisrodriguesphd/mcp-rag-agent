@@ -1,11 +1,11 @@
-"""MCP server for RAG agent with semantic search capabilities."""
+"""MCP server for RAG agent with hybrid search capabilities."""
 import logging
 
 from mcp_rag_agent.core.config import config
 from mcp_rag_agent.core.log_setup import setup_logging
 from mcp_rag_agent.mongodb.client import MongoDBClient
 from mcp_rag_agent.embeddings.embedding_generator import EmbeddingGenerator
-from mcp_rag_agent.embeddings.semantic_search import SemanticSearch
+from mcp_rag_agent.embeddings.hybrid_search import HybridSearch
 
 setup_logging()
 logger = logging.getLogger("Retriever")
@@ -24,13 +24,14 @@ embedding_generator = EmbeddingGenerator(
     dimensions=config.embedding_dimension
 )
 
-# Initialize semantic search
-logger.info("Initializing semantic search...")
-semantic_search = SemanticSearch(
+# Initialize hybrid search
+logger.info("Initializing hybrid search...")
+hybrid_search = HybridSearch(
     mongo_client=mongo_client,
     embedding_generator=embedding_generator,
-    default_collection=config.db_documents_collection,
-    default_index=config.db_vector_index_name
+    default_collection=config.db_vector_collection,
+    default_vector_index=config.db_vector_index_name,
+    default_text_index="text_index"
 )
 
 async def search_documents(
@@ -38,13 +39,13 @@ async def search_documents(
     top_k: int = 3
 ) -> list[dict]:
     """
-    Perform semantic search on indexed documents using vector embeddings.
+    Perform hybrid search on indexed documents using vector and text search.
 
-    This tool searches through the document collection using semantic similarity
-    to find the most relevant documents matching the user's query. It converts
-    the query text into embeddings and uses MongoDB's vector search capabilities
-    to retrieve similar documents. These documents can be used to ground the 
-    user's answer.
+    This tool searches through the document collection using hybrid search that
+    combines semantic similarity (vector embeddings) and keyword matching (text search)
+    using Reciprocal Rank Fusion (RRF). This provides the best of both worlds:
+    conceptual understanding from embeddings and precise keyword matching from text search.
+    The results can be used to ground the user's answer with the most relevant documents.
 
     Args:
         query (str): The search query text to find relevant documents.
@@ -52,15 +53,14 @@ async def search_documents(
             Defaults to 3.
 
     Returns:
-        list[dict]: A list of matching documents, ordered by relevance.
+        list[dict]: A list of matching documents, ordered by RRF score (relevance).
     """
-    logger.info(f"Semantic search started: {query}")
+    logger.info(f"Hybrid search started: {query}")
 
-    results = await semantic_search.search(
+    results = await hybrid_search.search(
         query=query,
         limit=top_k,
-        collection_name=config.db_vector_collection,
-        index_name=config.db_vector_index_name,
+        semantic_weight=config.semantic_weight
     )
 
     logger.info(f"Found {len(results)} relevant documents")

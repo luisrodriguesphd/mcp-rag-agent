@@ -1,11 +1,11 @@
 # MCP RAG Agent
 
-Production-ready RAG system combining LangGraph agent with Model Context Protocol (MCP) integration. Features semantic search via MongoDB Atlas Vector Search, grounded responses using COSTAR prompting, and automated RAGAS-based evaluation for building reliable, context-aware AI agents.
+Production-ready RAG system combining LangGraph agent with Model Context Protocol (MCP) integration. Features hybrid search using Reciprocal Rank Fusion (RRF) via MongoDB vector and full-ttext searches, grounded responses using COSTAR prompting, and automated RAGAS-based evaluation for building reliable, context-aware AI agents.
 
 ## Overview
 
 The MCP RAG Agent is a sophisticated question-answering system that:
-- Uses semantic search to find relevant documents from a policy corpus
+- Uses hybrid search to find relevant documents from a policy corpus
 - Employs a LangGraph agent to reason about and retrieve information
 - Integrates via the Model Context Protocol (MCP) for modular, reusable components
 - Ensures grounded responses using the COSTAR prompting framework
@@ -15,7 +15,9 @@ The MCP RAG Agent is a sophisticated question-answering system that:
 ## Key Features
 
 - **MCP Integration**: Standardized protocol for tool exposure and agent communication
+- **Hybrid Search**: Combines vector similarity and keyword search using Reciprocal Rank Fusion (RRF)
 - **Semantic Search**: Vector-based document retrieval using OpenAI embeddings
+- **Text Search**: Full-text keyword search with stemming and relevance scoring
 - **MongoDB Atlas**: Scalable vector storage with efficient similarity search
 - **Grounded Responses**: Strict context-based answering with no hallucinations
 - **COSTAR Prompting**: Structured prompt design for consistent, high-quality outputs
@@ -72,6 +74,7 @@ mcp-rag-agent/
 │   │   ├── embedding_generator.py  # OpenAI embeddings generation
 │   │   ├── index_documents.py      # Document indexing pipeline
 │   │   ├── semantic_search.py      # Vector similarity search
+│   │   ├── hybrid_search.py        # Hybrid search combining vector + text
 │   │   └── README.md               # Embeddings module documentation
 │   ├── mcp_server/                 # MCP server implementation
 │   │   ├── server.py               # FastMCP server with tools
@@ -230,6 +233,48 @@ async def main():
 asyncio.run(main())
 ```
 
+### Hybrid Search (Recommended)
+
+```python
+import asyncio
+from mcp_rag_agent.mongodb.client import MongoDBClient
+from mcp_rag_agent.embeddings.embedding_generator import EmbeddingGenerator
+from mcp_rag_agent.embeddings.hybrid_search import HybridSearch
+from mcp_rag_agent.core.config import config
+
+async def main():
+    # Setup
+    mongo_client = MongoDBClient(config.db_url, config.db_name)
+    mongo_client.connect()
+    
+    embedder = EmbeddingGenerator(
+        api_key=config.model_api_key,
+        model=config.embedding_model
+    )
+    
+    hybrid = HybridSearch(
+        mongo_client=mongo_client,
+        embedding_generator=embedder,
+        default_collection=config.db_vector_collection
+    )
+    
+    # Perform hybrid search (combines semantic + keyword matching)
+    results = await hybrid.search(
+        query="What are the sustainability initiatives?",
+        limit=5,
+        semantic_weight=0.7  # 70% semantic, 30% keyword (default)
+    )
+    
+    for doc in results:
+        print(f"RRF Score: {doc['rrf_score']:.4f}")
+        print(f"Vector Rank: {doc['vector_rank']}, Text Rank: {doc['text_rank']}")
+        print(f"Content: {doc['content'][:200]}...\n")
+    
+    mongo_client.disconnect()
+
+asyncio.run(main())
+```
+
 ### Indexing New Documents
 
 ```python
@@ -252,8 +297,9 @@ Each module has detailed documentation:
 
 - **[Agent](src/mcp_rag_agent/agent/README.md)**: LangGraph ReAct agent with MCP integration
 - **[MCP Server](src/mcp_rag_agent/mcp_server/README.md)**: FastMCP server providing RAG tools
-- **[MongoDB](src/mcp_rag_agent/mongodb/README.md)**: Database client with vector search
-- **[Embeddings](src/mcp_rag_agent/embeddings/README.md)**: Document indexing and semantic search
+- **[MongoDB](src/mcp_rag_agent/mongodb/README.md)**: Database client with vector, text, and hybrid search capabilities
+  - See [SEARCH_GUIDE.md](src/mcp_rag_agent/mongodb/SEARCH_GUIDE.md) for detailed comparison of search methods
+- **[Embeddings](src/mcp_rag_agent/embeddings/README.md)**: Document indexing, semantic search, and hybrid search
 - **[Evaluation](evaluation/README.md)**: Automated testing with RAGAS metrics
 
 ## Configuration

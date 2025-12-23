@@ -1,14 +1,15 @@
 # MCP Server Module
 
-The MCP (Model Context Protocol) server module provides a standardized interface for semantic search and RAG (Retrieval-Augmented Generation) capabilities. It exposes tools and prompts that can be consumed by LangChain agents and other MCP-compatible clients.
+The MCP (Model Context Protocol) server module provides a standardized interface for hybrid search and RAG (Retrieval-Augmented Generation) capabilities. It exposes tools and prompts that can be consumed by LangChain agents and other MCP-compatible clients.
 
 ## Overview
 
 This module implements an MCP server that:
-- Exposes a `search_documents` tool for semantic search across document collections
+- Exposes a `search_documents` tool for **hybrid search** combining vector similarity and keyword matching
 - Provides a `grounded_qa_prompt` for ensuring factual, context-based responses
-- Integrates with MongoDB for vector storage and retrieval
+- Integrates with MongoDB for vector storage, text indexing, and retrieval
 - Uses OpenAI embeddings for semantic similarity matching
+- Employs **Reciprocal Rank Fusion (RRF)** to combine search results
 - Communicates via stdio transport for local integration
 
 ## Architecture
@@ -56,12 +57,13 @@ embedding_generator = EmbeddingGenerator(
     dimensions=config.embedding_dimension
 )
 
-# Semantic Search
-semantic_search = SemanticSearch(
+# Hybrid Search
+hybrid_search = HybridSearch(
     mongo_client=mongo_client,
     embedding_generator=embedding_generator,
-    default_collection=config.db_documents_collection,
-    default_index=config.db_vector_index_name
+    default_collection=config.db_vector_collection,
+    default_vector_index=config.db_vector_index_name,
+    default_text_index="text_index"
 )
 ```
 
@@ -69,7 +71,7 @@ semantic_search = SemanticSearch(
 
 ##### `search_documents`
 
-Performs semantic search on indexed documents using vector embeddings.
+Performs **hybrid search** on indexed documents combining vector similarity and keyword matching using Reciprocal Rank Fusion (RRF).
 
 **Signature:**
 ```python
@@ -86,8 +88,17 @@ async def search_documents(query: str, top_k: int = 3) -> list[dict]
 **How It Works:**
 1. Receives user query text
 2. Generates embedding vector for the query
-3. Performs vector similarity search in MongoDB
-4. Returns top-k most relevant documents with metadata
+3. **Parallel Execution**:
+   - Performs vector similarity search in MongoDB (semantic matching)
+   - Performs full-text search in MongoDB (keyword matching)
+4. **RRF Fusion**: Combines both result sets using Reciprocal Rank Fusion
+5. Returns top-k most relevant documents ordered by combined RRF score
+
+**Benefits of Hybrid Search:**
+- **Semantic Understanding**: Finds conceptually related content via embeddings
+- **Keyword Precision**: Captures exact terms and technical language
+- **Best of Both Worlds**: RRF algorithm balances both approaches
+- **Better Recall**: Finds documents missed by single-method searches
 
 **Example Usage (via Agent):**
 ```python
@@ -104,12 +115,16 @@ results = await agent_tool.search_documents(
     {
         "file_name": "1 - Remote Working.txt",
         "content": "Employees may work remotely up to 3 days per week...",
-        "score": 0.89
+        "rrf_score": 0.0323,  # Combined RRF score
+        "vector_rank": 1,      # Rank in semantic search
+        "text_rank": 2         # Rank in keyword search
     },
     {
         "file_name": "4 - IT Security.txt", 
         "content": "When working remotely, employees must...",
-        "score": 0.76
+        "rrf_score": 0.0303,
+        "vector_rank": 3,
+        "text_rank": 1
     }
 ]
 ```
@@ -161,7 +176,24 @@ DB_VECTOR_INDEX_NAME = "vector_index"
 OPENAI_API_KEY = "sk-..."
 EMBEDDING_MODEL = "text-embedding-3-small"
 EMBEDDING_DIMENSION = 1536
+
+# Search Settings
+SEMANTIC_WEIGHT = 0.7  # 0.7 = 70% semantic, 30% keyword (default)
 ```
+
+### Hybrid Search Configuration
+
+The `SEMANTIC_WEIGHT` parameter controls the balance between semantic and keyword search:
+
+- **1.0**: Pure semantic search (100% vector similarity)
+- **0.7**: Semantic-focused (70% semantic, 30% keyword) - **Recommended default**
+- **0.5**: Balanced hybrid search
+- **0.3**: Keyword-focused (30% semantic, 70% keyword)
+- **0.0**: Pure keyword search (100% text matching)
+
+**When to adjust:**
+- **Higher semantic weight** (0.7-1.0): Exploratory queries, conceptual questions
+- **Lower semantic weight** (0.0-0.5): Precise technical terms, exact phrase matching
 
 ## Running the Server
 
@@ -233,9 +265,9 @@ The MCP server automatically generates JSON schemas for all tools. For `search_d
 }
 ```
 
-## Semantic Search Pipeline
+## Hybrid Search Pipeline
 
-The complete search flow:
+The complete hybrid search flow:
 
 ```
 User Query: "What is the annual leave policy?"
@@ -243,14 +275,19 @@ User Query: "What is the annual leave policy?"
 1. Embedding Generation
    Query → OpenAI API → Vector [0.12, -0.34, 0.56, ...]
     ↓
-2. Vector Search
-   MongoDB vector index search using cosine similarity
+2. Parallel Search Execution
+   ├─→ Vector Search: MongoDB vector index (cosine similarity)
+   └─→ Text Search: MongoDB text index (keyword matching)
     ↓
-3. Results Retrieval
-   Fetch top-k documents with metadata
+3. Reciprocal Rank Fusion (RRF)
+   Combine rankings: RRF_score = Σ(1 / (k + rank_i))
+   Apply semantic_weight to balance vector vs text
     ↓
-4. Response Formation
-   [{file_name, content, score}, {...}, {...}]
+4. Results Retrieval
+   Fetch top-k documents ordered by RRF score
+    ↓
+5. Response Formation
+   [{file_name, content, rrf_score, vector_rank, text_rank}, ...]
     ↓
 Agent: Uses retrieved documents to formulate grounded answer
 ```
@@ -287,14 +324,14 @@ The server uses structured logging:
 ```python
 logger.info("Initializing MongoDB client...")
 logger.info("Initializing embedding generator...")
-logger.info("Initializing semantic search...")
-logger.info(f"Semantic search started: {query}")
+logger.info("Initializing hybrid search...")
+logger.info(f"Hybrid search started: {query}")
 ```
 
 Log output includes:
-- Initialization steps
-- Search queries and parameters
-- Results counts and scores
+- Initialization steps (MongoDB, embeddings, hybrid search)
+- Search queries and parameters (query text, top_k, semantic_weight)
+- Results counts and RRF scores
 - Error messages and stack traces
 
 ## Dependencies
@@ -324,7 +361,7 @@ Log output includes:
          │ Calls
          ↓
 ┌─────────────────┐
-│ Semantic Search │
+│  Hybrid Search  │
 │ Module          │
 └────────┬────────┘
          │ Queries

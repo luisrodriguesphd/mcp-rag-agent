@@ -38,6 +38,8 @@ class Config(BaseSettings):
     mcp_name: str = os.environ.get("MCP_SERVER_NAME", "mongodb-semantic-search")
     mcp_host: str = os.environ.get("MCP_SERVER_HOST", "127.0.0.1")
     mcp_port: int = int(os.environ.get("MCP_SERVER_PORT", "8000"))
+    # Search settings
+    semantic_weight: float = float(os.environ.get("SEMANTIC_WEIGHT", "0.7"))  # 0.7 = 70% semantic, 30% keyword
     # Feature flags
     ff_mcp_server: bool = os.environ.get("FEATURE_FLAG_MCPSERVER_ENABLED", "false").lower() == "true"
     ff_web_search: bool = os.environ.get("FEATURE_FLAG_WEBSEARCH_ENABLED", "false").lower() == "true"
