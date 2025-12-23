@@ -1,6 +1,6 @@
 # MCP RAG Agent
 
-Production-ready RAG system combining LangGraph agent with Model Context Protocol (MCP) integration. Features hybrid search using Reciprocal Rank Fusion (RRF) via MongoDB vector and full-ttext searches, grounded responses using COSTAR prompting, and automated RAGAS-based evaluation for building reliable, context-aware AI agents.
+Production-ready RAG system combining LangGraph agent with Model Context Protocol (MCP) integration. Features hybrid search using Reciprocal Rank Fusion (RRF) via MongoDB vector and full-text searches, grounded responses using COSTAR prompting, and automated RAGAS-based evaluation for building reliable, context-aware AI agents.
 
 ## Overview
 
